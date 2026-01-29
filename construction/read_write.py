@@ -205,6 +205,29 @@ def convert_dump_to_xyz(file):
             f.write(type_write + " {:3.6f} {:3.6f} {:3.6f}\n".format(xs,ys,zs))
     return
 
+def convert_data_to_xyz(file):
+    list_BOX,list_ATOMS = read_data(file,do_scale=False)
+    # print(np.shape(list_ATOMS))
+    list_ATOMS = list_ATOMS[0]
+
+    with open(file.split(".")[0] + ".xyz","w") as f:
+        f.write(str(len(list_ATOMS)))
+        f.write("\n")
+        f.write("\n")
+        for num,type_at,x,y,z in list_ATOMS:
+            if type_at == 1:
+                type_write = "Si "
+            elif type_at == 4:
+                type_write = "H "
+            else: type_write = "O "
+            # xs = x*Lx + tx
+            # ys = y*Ly + ty
+            # zs = z*Lz + tz
+
+            f.write(type_write + " {:3.6f} {:3.6f} {:3.6f}\n".format(x,y,z))
+
+
+
 def write_data(file_name,Pos,Types,Lims,D=0,Bonds_OH=[],Angles_OH=[]):
     H_present = False
     if 3 in Types:
