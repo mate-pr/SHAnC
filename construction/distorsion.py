@@ -243,7 +243,7 @@ def clean_structure(Pos,Types,Lims,N,periodic=True):
 
 
 
-def transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=True,circling=True,do_rota_transf=False):
+def transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=True,circling=True,do_rota_transf=False,params_helix=[]):
     """
     transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=True,circling=True,do_rota_transf=False)
 
@@ -292,8 +292,13 @@ def transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=T
     lx = np.min(x)
     Ly = np.max(y)
     ly = np.min(y)
-    LX = Lx-lx
-    LY = Ly-ly
+
+    if len(params_helix):
+        LX = params_helix[1]
+        LY = params_helix[2]
+    else:
+        LX = Lx-lx
+        LY = Ly-ly
 
 
     if circling:
@@ -334,6 +339,8 @@ def transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=T
         y = y_coord * Ly
 
 
+
+
     if do_rota_transf:
         #The worse version of the transformation.
         #This is used for illustration purposes to show the progress of the method
@@ -353,8 +360,10 @@ def transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=T
         Norm = (Lz**2 + R**2)**(1/2)
 
         z_coord = Lz * z + R * x / Norm
+        # y_coord = R * np.cos(z*rota) - np.cos(z*rota) * y + Lz * np.sin(z*rota) / Norm * x
         y_coord = R * np.cos(z*rota) - np.cos(z*rota) * y + Lz * np.sin(z*rota) / Norm * x
         x_coord = R * np.sin(z*rota) - np.sin(z*rota) * y - Lz * np.cos(z*rota) / Norm * x
+        # x_coord = R * np.sin(z*rota) - np.sin(z*rota) * y - Lz * np.cos(z*rota) / Norm * x
 
 
 
@@ -465,12 +474,51 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
     #It is however possible to find the D corresponding to the transformation
     if circling:
         #The maximum distance is taken on the ellipse
-        D_transfo = ((D**2 - width**2) / ((1 + thickness**2 / (width**2 - thickness**2))))**(1/2) /2
+        W = width
+        P = pitch/2/np.pi
+        T = thickness
+
+
+        D_est = (-T+D_exp) /2
+        N = P / (P*P + D_est*D_est)**(1/2)
+        b = 2*T*D_est / (W*W*N*N - T*T)
+        # print(b)
+
+        if b > 1 :
+            #The extremum point is the point in the external layer
+            D_transfo = D_est
+
+        else:
+            #The extremum is in-between
+
+            d0 = (W*W/4 - D_exp**2/4) * P**4 * (W*W-T*T)
+            d2 = (P*P*D_exp**2/4 * (T*T-W*W) + P*P*T*T * (D_exp**2/4-W*W/4)) + P**4*W*W
+            d4 = (D_exp**2/4 *T*T + W*W*P*P)
+
+            delta = (d2**2 - 4*d4*d0)
+            # print(delta)
+
+            if delta > d2**2:
+                D_transfo = ((-d2 + delta**(1/2))/2/d4)**(1/2)
+            else:
+                print("Two possiblities for the D, the higher one has been taken")
+                D_transfo = ((-d2 - delta**(1/2))/2/d4)**(1/2)
+                D_transfo = ((-d2 + delta**(1/2))/2/d4)**(1/2)
+
     else:
+        #This formula is not exact as it does not take into account the norm
         D_transfo = ((D**2 - width**2)**(1/2) - thickness)/2
-    if D < width:
+    if D_exp < width:
         D_transfo = 0
-    # print("Old D", D_transfo)
+
+    print("Old D", D_transfo,D_exp)
+    # D_transfo = 22
+    # N = P / (P*P + D_transfo*D_transfo)**(1/2)
+    # b = 2*T*D_transfo / (W*W*N*N - T*T)
+    # print(b)
+    # D_transfo = 13.31484968079192
+    # D_transfo = 40
+
     #
     # print(2*(width**2/4 + D_transfo**2 * (1+(thickness**2/(width**2-thickness**2))) ) ** (1/2))
 
@@ -488,7 +536,7 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
         Pos, Types, Lims_tot, _a, _b = duplicate(Nx_list,Ny_list,Nz,Lims,Atom_types,Atom_pos)
         Bonds_OH, Angles_OH = [], []
 
-    Pos_transfo,Lims_tot,slide_z = transfo(Pos,D=D_transfo,rota=rota,do_periodic=do_periodic,circling=circling,do_rota_transf=do_rota_transf)
+    Pos_transfo,Lims_tot,slide_z = transfo(Pos,D=D_transfo,rota=rota,do_periodic=do_periodic,circling=circling,do_rota_transf=do_rota_transf,params_helix=[pitch,width,thickness])
     write_data("quartz_dupl.data",Pos_transfo,Types,Lims_tot,Bonds_OH=Bonds_OH,Angles_OH=Angles_OH)
 
     ##Inside
@@ -519,13 +567,37 @@ if __name__ == "__main__":
     # thickness = 112
     # int_thick = 35
 
+    D = 244
+    # D =
+    pitch = 453
+    # pitch = 200
+    width = 226
+    thickness = 112
+    int_thick = 35
+
+    # a = 400/453
+    #
+    # D = 215.45
+    # pitch = 400
+    # width = 199.56
+    # thickness = 98.89
+    # int_thick = 15
+
+    D = D * 1/3
+    pitch = pitch * 1/3
+    width = width* 1/3
+    thickness = thickness * 1/3
+    int_thick = 35/3
+
     #System
-    # D = 100
-    # D = 0
+    # D = 180
     # pitch = 300
-    # width = 80
-    # thickness = 40
-    # int_thick = 10
+    # width = 150
+    # thickness = 75
+    # int_thick = 23
+
+    ##Faire rapport pour 100 checker courbure
+
 
     #Smaller system
     # D = 100
@@ -540,23 +612,25 @@ if __name__ == "__main__":
     # width = 10
     # thickness = 10
     # int_thick = 0
-    D = 150
-    pitch = 200
-    width = 60
-    thickness = 30
-    int_thick=0
+    # D = 150
+    # pitch = 200
+    # width = 60
+    # thickness = 30
+    # int_thick=0
 
 
-    Pos_transfo,Types,Lims_tot,Angles_OH, Pos_transfo_int, Types_int, Lims_tot_int = create_syst(rota,D,pitch,width,thickness,int_thick,do_clean=True,circling=True,do_rota_transf=False)
+    Pos_transfo,Types,Lims_tot,Angles_OH, Pos_transfo_int, Types_int, Lims_tot_int = create_syst(rota,D,pitch,width,thickness,int_thick,do_clean=False,circling=True,do_rota_transf=False)
     # Pos_transfo,Types,Lims_tot,Angles_OH, Pos_transfo_int, Types_int, Lims_tot_int = create_syst(rota,D,pitch,width,thickness,int_thick,circling=True)
 
     print("Number of Si : ",np.sum(Types==1))
     # plt.plot(np.sort(Pos_transfo[:,0]),"o-r")
     # plt.show()
+    print(D)
     print("Diameter of the system : ",(np.max(Pos_transfo[:,0])-np.min(Pos_transfo[:,0])))
+    print("Diameter of the system : ",(np.max(Pos_transfo[:,1])-np.min(Pos_transfo[:,1])))
 
     #Do the analysis
-    if 0:
+    if 1:
         import matplotlib.pyplot as plt
         analyze_mult([0],[Pos_transfo],[Types],periodic=True,Lims=Lims_tot)
         # import pyvista as pv
