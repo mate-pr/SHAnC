@@ -161,7 +161,23 @@ def read_data(file,do_scale=True,atom_style="full"):
         Lims[2][0] = 0
         return np.array(Lims),np.array(Atom_types),Atom_pos
 
+def read_xyz(file_name, ):
+    type_map = {"Si": 5, "O": 6, "H" : 7}
+    with open(file_name, 'r') as f:
+        lines = f.readlines()
+    
+    n_atoms = int(lines[0])
+    atoms = []
+    coords = []
 
+    for line in lines[2:2+n_atoms]:
+        parts = line.split()
+        symbol = parts[0]
+
+        atoms.append(type_map[symbol])
+        coords.append([float(x) for x in parts[1:4]])
+    
+    return atoms, np.array(coords)
 
 def convert_dump_to_xyz(file):
     """
