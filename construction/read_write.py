@@ -226,11 +226,28 @@ def convert_data_to_xyz(file):
 
             f.write(type_write + " {:3.6f} {:3.6f} {:3.6f}\n".format(x,y,z))
 
+def read_xyz(file_name, ):
+    type_map = {"Si": 5, "O": 6, "H" : 7}
+    with open(file_name, 'r') as f:
+        lines = f.readlines()
+    
+    n_atoms = int(lines[0])
+    atoms = []
+    coords = []
+
+    for line in lines[2:2+n_atoms]:
+        parts = line.split()
+        symbol = parts[0]
+
+        atoms.append(type_map[symbol])
+        coords.append([float(x) for x in parts[1:4]])
+    
+    return atoms, np.array(coords)
 
 
-def write_data(file_name,Pos,Types,Lims,D=0,Bonds_OH=[],Angles_OH=[]):
+def write_data(file_name,Pos,Types,Lims,D=0,test_particle = False,Bonds_OH=[],Angles_OH=[]):
     H_present = False
-    if 3 in Types:
+    if (3 in Types) or (7 in Types):
         H_present = True
 
     bonds = False
@@ -239,6 +256,9 @@ def write_data(file_name,Pos,Types,Lims,D=0,Bonds_OH=[],Angles_OH=[]):
         bonds = True
     if len(Angles_OH) > 0:
         angles = True
+
+    lines = ["1 28.0855", "2 15.9994", "3 15.9994", "4 1.0080", 
+             "5 28.0855", "6 15.9994", "7 1.0080", "8 14.0067"] 
 
     with open(file_name,"w") as file:
         file.write("\n")
@@ -253,7 +273,10 @@ def write_data(file_name,Pos,Types,Lims,D=0,Bonds_OH=[],Angles_OH=[]):
             file.write("\n")
         file.write("\n")
 
-        file.write("{} atom types".format(np.max(Types)))
+        if test_particle == True:
+            file.write("{} atom types".format((np.max(Types)-np.min(Types) + 1)))
+        else:
+            file.write("{} atom types".format(np.max(Types)))
         file.write("\n")
 
         if bonds and H_present:
@@ -272,19 +295,32 @@ def write_data(file_name,Pos,Types,Lims,D=0,Bonds_OH=[],Angles_OH=[]):
         file.write("\n")
         file.write("\n")
 
-        file.write("Masses")
-        file.write("\n")
-        file.write("\n")
-        file.write("1 28.0855")
-        file.write("\n")
-        file.write("2 15.9994")
-        file.write("\n")
+        if test_particle == True: 
+            file.write("Masses")
+            file.write("\n")
+            file.write("\n")
+            for line in lines:
+                tokens = line.split()
+                type_line = int(tokens[0])
+                unique_types = np.unique(Types)
+                if type_line in unique_types:
+                    #print(line)
+                    file.write(line)
+                    file.write("\n")
+        else:  
+            file.write("Masses")
+            file.write("\n")
+            file.write("\n")
+            file.write("1 28.0855")
+            file.write("\n")
+            file.write("2 15.9994")
+            file.write("\n")
 
-        if H_present:
-            file.write("3 15.9994")
-            file.write("\n")
-            file.write("4 1.0080")
-            file.write("\n")
+            if H_present:
+                file.write("3 15.9994")
+                file.write("\n")
+                file.write("4 1.0080")
+                file.write("\n")
 
         file.write("\n")
         file.write("Atoms")
