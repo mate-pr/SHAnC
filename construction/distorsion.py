@@ -388,7 +388,8 @@ def transfo(Pos,slide_z=0,D=0,rota=0,enlarge=10,enlarge_z=0.700758,do_periodic=T
 
 
 
-def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_periodic=True,circling=True,do_rota_transf=False,file_duplicate="beta_quartz.data",do_angles=False):
+
+def create_syst(rota,D_exp,pitch,width,thickness,int_thick, asym = 1, do_clean=True,do_periodic=True,circling=True,do_rota_transf=False,file_duplicate="beta_quartz.data",do_angles=False):
     """
     create_syst(rota,D,pitch,width,thickness,int_thick,do_clean=True,do_periodic=True,circling=True,do_rota_transf=False,file_duplicate="beta_quartz.data",do_angles=False)
 
@@ -440,6 +441,7 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
         Two files are also created : quartz_dupl.data and quartz_int.data
     """
 
+    
     Lims, Atom_types, Atom_pos = read_data(file_duplicate,do_scale=False,atom_style="atom")
 
     #Get the number of duplication needed to get the proper dimensions
@@ -458,8 +460,22 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
     Nx_int = int(int_thick // lx +1)
     Ny_int = int(int_thick // ly +1)
 
-    Nx_list = [0,Nx_int,Nx-Nx_int,Nx]
-    Ny_list = [0,Ny_int,Ny-Ny_int,Ny]
+    if asym != 1:
+        Nx_left = Nx_int
+        Ny_left = Ny_int 
+
+        Nx_right = round(asym*Nx_int)
+        Ny_right = round(asym*Ny_int)
+
+        print(Nx-Nx_right)
+        print(Ny-Ny_right)
+
+        Nx_list = [0,Nx_left,Nx-Nx_right,Nx]
+        Ny_list = [0,Ny_left,Ny-Ny_right,Ny]
+    else: 
+        print(Nx_int, Ny_int)
+        Nx_list = [0,Nx_int,Nx-Nx_int,Nx]
+        Ny_list = [0,Ny_int,Ny-Ny_int,Ny]
 
     N_list = np.array([[Nx],[Ny],[Nz]])
 
@@ -481,7 +497,7 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
         D_est = (-T+D_exp) /2
         N = P / (P*P + D_est*D_est)**(1/2)
         b = abs(2*T*D_est / (W*W*N*N - T*T))
-        print(b)
+        # print(b)
 
         if b > 1 :
             #The extremum point is the point in the external layer
@@ -495,10 +511,10 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
             d4 = (D_exp**2/4 *T*T + W*W*P*P)
 
             delta = (d2**2 - 4*d4*d0)
-            print("delta",delta)
+            # print(delta)
 
             if delta > d2**2:
-                D_transfo = ((-d2 + delta**(1/2))/2/d4)**(1/2)
+                D_transfo = ((-d2 + delta**(1/2))/2/d4)**(1/2)  
             elif delta < 0:
                 print("Two possiblities for the D, the higher one has been taken")
                 D_transfo = np.real(((-d2 + delta**(1/2))/2/d4)**(1/2))
@@ -506,8 +522,6 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
                 print("Two possiblities for the D, the higher one has been taken")
                 D_transfo = ((-d2 - delta**(1/2))/2/d4)**(1/2)
                 D_transfo = ((-d2 + delta**(1/2))/2/d4)**(1/2)
-                # print(((-d2 - delta**(1/2))/2/d4)**(1/2))
-                # print(((-d2 + delta**(1/2))/2/d4)**(1/2))
 
     else:
         #This formula is not exact as it does not take into account the norm
@@ -515,11 +529,8 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
     if D_transfo < 0:
         D_transfo = 0
 
-
-    # print("Old D", D_transfo,D_exp)
-    # print("N",((D_transfo**2 + P**2)**(1/2)))
-    # print("P_t",P)
-    # D_transfo = 40
+    print("Old D", D_transfo,D_exp)
+    # D_transfo = 22
     # N = P / (P*P + D_transfo*D_transfo)**(1/2)
     # b = 2*T*D_transfo / (W*W*N*N - T*T)
     # print(b)
@@ -534,7 +545,7 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
     if do_clean:
         #create one slab that is corrected then duplicated Nz times
         #The slab contains 3 duplicates as to only take the inside when doing the cleaning
-        Pos, Types, Lims_tot, _a, _b = duplicate(Nx_list,Ny_list,3,Lims,Atom_types,Atom_pos)
+        Pos, Types, Lims_tot, _a, _b = duplicate(Nx,Ny,3,Lims,Atom_types,Atom_pos)
         Pos, Types, Bonds_OH, Angles_OH = clean_structure(Pos,Types,Lims,N_list,periodic=True)
         Pos, Types, Lims_tot, Bonds_OH, Angles_OH = duplicate(1,1,Nz,Lims,Types,Pos,Bonds_OH=Bonds_OH,Angles_OH=Angles_OH)
         if not do_angles:
@@ -543,22 +554,76 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick,do_clean=True,do_peri
         Pos, Types, Lims_tot, _a, _b = duplicate(Nx_list,Ny_list,Nz,Lims,Atom_types,Atom_pos)
         Bonds_OH, Angles_OH = [], []
 
+    # Mask to separate the surface and the cast later
+    mask_int_x = (((Pos[:,0] - Lims[0][0])//lx >= Nx_list[1]) & ((Pos[:,0] - Lims[0][0])//lx < Nx_list[2]))
+    mask_int_y = (((Pos[:,1] - Lims[1][0])//ly >= Ny_list[1]) & ((Pos[:,1] - Lims[1][0])//ly < Ny_list[2]))
+
+    mask_int = mask_int_x & mask_int_y
+    mask_surf = ~mask_int
+    
+    # Transformation of the cuboid into the helice
     Pos_transfo,Lims_tot,slide_z = transfo(Pos,D=D_transfo,rota=rota,do_periodic=do_periodic,circling=circling,do_rota_transf=do_rota_transf,params_helix=[pitch,width,thickness])
-    write_data("quartz_dupl.data",Pos_transfo,Types,Lims_tot,Bonds_OH=Bonds_OH,Angles_OH=Angles_OH)
+  
+    # Mapping of the indices between cast and surface
+    Pos_transfo_int = Pos_transfo[mask_int]
+    Types_int = Types[mask_int]
 
-    ##Inside
-    if not type(Nx_list) is int:
-        Nx_int = Nx_list[1:3]
-        Ny_int = Ny_list[1:3]
-        Pos_int, Types_int, Lims_tot_int, _a, _b = duplicate(Nx_int,Ny_int,Nz,Lims,Atom_types,Atom_pos)
-        Pos_transfo_int ,Lims_tot_int,slide_z = transfo(Pos_int,D=D_transfo,rota=rota,slide_z=slide_z,do_periodic=do_periodic,circling=circling)
-        write_data("quartz_int.data",Pos_transfo_int,Types_int,Lims_tot_int,Bonds_OH=Bonds_OH,Angles_OH=Angles_OH)
+    Pos_transfo_surf = Pos_transfo[mask_surf]
+    Types_surf = Types[mask_surf]
+
+    Ind_cut = mask_surf
+    Ind_sum = np.cumsum(Ind_cut) - 1
+    new_bond_surf = []
+
+    # Recovery of Bond indices 
+    for a1,a2 in Bonds_OH:
+        i1 = a1 - 1
+        i2 = a2 - 1   
+        if mask_surf[i1] and mask_surf[i2]:
+            new_a1 = Ind_sum[i1] + 1
+            new_a2 = Ind_sum[i2] + 1
+            new_bond_surf.append([new_a1, new_a2])
+
+    for a1, a2 in new_bond_surf:
+        d = np.linalg.norm(Pos_transfo_surf[a2 - 1] - Pos_transfo_surf[a1 - 1])
+        Lz = Lims_tot[2][1] - Lims_tot[2][0]
+
+        delta = Pos_transfo_surf[a2 - 1,2] - Pos_transfo_surf[a1 - 1, 2]
+        delta -= Lz*np.round(delta/Lz)
+        dmin = np.linalg.norm(delta)
+        if d > 10: # Check if bond not too large
+            dz = Pos_transfo_surf[a2 - 1, 2] - Pos_transfo_surf[a1 - 1, 2]
+            print(dz, Lz/2)
+            if dz > Lz/2:
+                Pos_transfo_surf[a2 - 1,2] -= Lz
+            if dz < -Lz/2:
+                Pos_transfo_surf[a2 - 1,2] += Lz
+            print(Pos_transfo_surf[a2 - 1, 2], Lz/2)
+            d = np.linalg.norm(Pos_transfo_surf[a1 - 1] - Pos_transfo_surf[a2 - 1])
+
+    # Write data file 
+    if Pos_transfo_surf.size > 0:
+        write_data("quartz_dupl.data",Pos_transfo_surf,Types_surf,Lims_tot,Bonds_OH=new_bond_surf,Angles_OH=Angles_OH)
     else:
-        Pos_transfo_int = None
-        Types_int = None
-        Lims_tot_int = None
+        print("surface is empty")
 
-    return Pos_transfo, Types, Lims_tot, Angles_OH, Pos_transfo_int, Types_int, Lims_tot_int
+    Lims_tot_int = np.array([[np.min(Pos_transfo_int[:,0]), np.max(Pos_transfo_int[:,0])],
+                             [np.min(Pos_transfo_int[:,1]), np.max(Pos_transfo_int[:,1])],
+                             [np.min(Pos_transfo_int[:,2]), np.max(Pos_transfo_int[:,2])]])
+
+    # ##Inside
+    # if not type(Nx_list) is int:
+    #     Nx_int = Nx_list[1:3]
+    #     Ny_int = Ny_list[1:3]
+    #     Pos_int, Types_int, Lims_tot_int, _a, _b = duplicate(Nx_int,Ny_int,Nz,Lims,Atom_types,Atom_pos)
+    #     Pos_transfo_int ,Lims_tot_int,slide_z = transfo(Pos_int,D=D_transfo,rota=rota,slide_z=slide_z,do_periodic=do_periodic,circling=circling)
+    write_data("quartz_int.data",Pos_transfo_int,Types_int,Lims_tot_int,Bonds_OH=Bonds_OH,Angles_OH=Angles_OH)
+    # else:
+    #     Pos_transfo_int = None
+    #     Types_int = None
+    #     Lims_tot_int = None
+
+    return Pos_transfo_surf, Types_surf, Lims_tot, Angles_OH, Pos_transfo_int, Types_int, Lims_tot, slide_z, mean
 
 
 
