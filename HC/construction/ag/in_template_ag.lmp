@@ -1,0 +1,90 @@
+units metal
+boundary p p p
+dimension 3
+
+atom_style full
+
+variable step_calc equal 10000
+variable step_calc_2 equal 50000
+variable dump_dt equal 1
+
+variable dump_write string dummp.lammpstrj
+
+read_data ag_dupl.data 
+
+mass 1 107.868200
+
+pair_style lj/cut 10.0
+pair_coeff 1 1 0.1977 2.63
+
+
+
+neighbor 2.0 bin
+
+
+
+dump dummp all atom 1 ${dump_write}
+dump_modify dummp sort id
+
+group ext type 1
+
+
+minimize 1.0e-6 1.0e-6 1000 10000
+
+dump_modify dummp every 100
+
+
+
+velocity ext create 300.0 312
+
+fix T ext nvt temp 300.0 1000.0 0.05
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc}
+
+
+velocity ext create 1000.0 1023
+
+unfix T
+fix T ext nvt temp 1000.0 1000.0 0.1
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.001
+
+run ${step_calc_2}
+
+velocity ext create 1000.0 1203
+
+unfix T
+fix T ext npt temp 1000.0 1000.0 0.05 iso 1 1 0.5
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc}
+
+
+velocity ext create 1000.0 1302
+
+unfix T
+fix T ext npt temp 1000.0 1000.0 0.05 iso 1 1 0.5
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.001
+
+run ${step_calc_2}
+
+velocity ext create 1000.0 1230
+
+unfix T
+fix T ext npt temp 1000.0 0.1 0.05 iso 1 1 0.5
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc_2}
+
+dump_modify dummp every 1
+minimize 1.0e-6 1.0e-6 1000 10000
