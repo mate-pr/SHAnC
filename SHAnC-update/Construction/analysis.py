@@ -28,7 +28,7 @@ from Construction.read_write import *
 def _compute_bonds(Pos, Types,
                   threshold_type1=2, threshold_type2=2, threshold_H=1.3,
                   do_count_type_3=True,
-                  cation_type=1, anion_type=2):
+                  cation_type=1, anion_type=2, metal = False):
     """
     Compute the bonds of an oxide system.
 
@@ -56,6 +56,12 @@ def _compute_bonds(Pos, Types,
     -------
     Bonds, Cat_count_An, An_count_Cat, O_count_H, H_count_O
     """
+    if metal:
+        Dist = sd.cdist(Pos_Cat, Pos_Cat)
+        np.fill_diagonal(Dist, np.inf)
+        Bonds = Dist < threshold_type1
+        Cat_count_An = np.sum(Bonds, axis = 1)
+        return Bonds, Cat_count_An, np.array([]), np.array([]), np.array([])
     # Select atoms by type: cations, anions (including OH oxygens when requested), and hydrogens.
     Pos_Cat = Pos[Types == cation_type]
 
@@ -156,20 +162,12 @@ def compute_bonds_graph(Pos,Types,cube=30,threshold_Si=2,threshold_O=2,threshold
         Types_add = np.append(Types[Pos_add_z],Types[Pos_remove_z],axis=0)
         Types_added = np.append(Types_added,Types_add,axis=0)
 
-    # print("MIN")
-    # print(np.min(Pos_added[:,0]),np.max(Pos_added[:,0]))
-    # print(np.min(Pos_added[:,1]),np.max(Pos_added[:,1]))
-    # print(np.min(Pos_added[:,2]),np.max(Pos_added[:,2]))
 
     Num_Si = np.sum(Types_added==1)
     Bonds_tot = np.zeros((Num_Si,Num_Si))
     for x in range(Nx):
         for y in range(Ny):
             for z in range(Nz):
-                # print("LIMS")
-                # print(((x*cube + lx - threshold_Si - 0.2)),((x+1)*cube + lx + threshold_Si + 0.2))
-                # print(((y*cube + ly - threshold_Si - 0.2)),((y+1)*cube + ly + threshold_Si + 0.2))
-                # print(((z*cube + lz - threshold_Si - 0.2)),((z+1)*cube + lz + threshold_Si + 0.2))
 
                 #Slice the system inside this cube
                 Pos_trunc_x = (Pos_added[:,0] > (x*cube + lx - threshold_Si - 0.2)) * (Pos_added[:,0] < ((x+1)*cube + lx + threshold_Si + 0.2))
@@ -180,7 +178,7 @@ def compute_bonds_graph(Pos,Types,cube=30,threshold_Si=2,threshold_O=2,threshold
                 Types_trunc = Types_added[Pos_trunc_ind]
                 if (Types_trunc == 1).any() and (Types_trunc==2).any():
 
-                    Bonds = _compute_bonds(Pos_trunc,Types_trunc,threshold_Si=threshold_Si,threshold_O=threshold_O,threshold_H=threshold_H)[0]
+                    Bonds = _compute_bonds(Pos_trunc,Types_trunc,threshold_type1=threshold_Si,threshold_type2=threshold_O,threshold_H=threshold_H)[0]
                     Bonds = Bonds.astype("float")
                     #Get Bonds Si
                     Bonds = Bonds.dot(Bonds.transpose())
@@ -213,11 +211,11 @@ def compute_bonds_graph(Pos,Types,cube=30,threshold_Si=2,threshold_O=2,threshold
 # Neighbour histogram (scalable, periodic-aware)
 # ---------------------------------------------------------------------------
 
-def _compute_hist_neighbors(Pos, Types,
+def compute_hist_neighbors(Pos, Types,
                            cube=100,
                            threshold_type1=2, threshold_type2=2, threshold_H=1.3,
                            periodic=True, Lims=[], rdf_max=5,
-                           cation_type=1, anion_type=2):
+                           cation_type=1, anion_type=2, metal = False):
     """
     Compute bond counts and RDF distances by slicing the system into sub-cubes.
 
@@ -277,7 +275,7 @@ def _compute_hist_neighbors(Pos, Types,
 
     Num_at  = len(Types)
     Num_Cat = np.sum(Types == cation_type)
-    Num_An  = np.sum((Types == anion_type) | (Types == 3))
+    Num_An  = 0 if metal else np.sum((Types == anion_type) | (Types == 3))
     In_trunc = np.array(
         [True] * Num_at + [False] * (len(Pos_added) - Num_at), dtype=bool
     )
@@ -312,6 +310,8 @@ def _compute_hist_neighbors(Pos, Types,
 
                 if not (np.any(Types_trunc == cation_type) and np.any(Types_trunc == anion_type)):
                     continue
+                if not metal and not np.any(Types_trunc == cation_type):
+                    continue
 
                 _, Cat_count_An, An_count_Cat, _, _ = _compute_bonds(
                     Pos_trunc, Types_trunc,
@@ -321,29 +321,38 @@ def _compute_hist_neighbors(Pos, Types,
                     do_count_type_3=True,
                     cation_type=cation_type,
                     anion_type=anion_type,
+                    metal = metal
                 )
 
                 cat_mask_pad = Types_trunc == cation_type
-                an_mask_pad  = (Types_trunc == anion_type) | (Types_trunc == 3)
-
+            
                 Cat_count_An = Cat_count_An[Ind_uniq_in_pad[cat_mask_pad]]
                 cat_idx = mask_u[:Num_at][Types == cation_type]
                 Cat_count_An_tot[cat_idx] = Cat_count_An
 
-                An_count_Cat = An_count_Cat[Ind_uniq_in_pad[an_mask_pad]]
-                an_idx = mask_u[:Num_at][(Types == anion_type) | (Types == 3)]
-                An_count_Cat_tot[an_idx] = An_count_Cat
+                if not metal:
+                    an_mask_pad  = (Types_trunc == anion_type) | (Types_trunc == 3)
+
+                    An_count_Cat = An_count_Cat[Ind_uniq_in_pad[an_mask_pad]]
+                    an_idx = mask_u[:Num_at][(Types == anion_type) | (Types == 3)]
+                    An_count_Cat_tot[an_idx] = An_count_Cat
 
                 # Distances for RDF
                 Pos_Cat_u = Pos_trunc_uniq[Types_trunc_uniq == cation_type]
-                Pos_An_u  = Pos_trunc_uniq[
-                    (Types_trunc_uniq == anion_type) | (Types_trunc_uniq == 3)
-                ]
-                if len(Pos_Cat_u) == 0 or len(Pos_An_u) == 0:
-                    continue
-
-                D = sd.cdist(Pos_Cat_u, Pos_An_u)
-                D[D == 0] = 100
+                if metal: 
+                    if len(Pos_Cat_u) < 2:
+                        continue
+                    D = sd.cdist(Pos_Cat_u, Pos_Cat_u)
+                    np.fill_diagonal(D, np.inf)
+                else:
+                    Pos_An_u  = Pos_trunc_uniq[
+                        (Types_trunc_uniq == anion_type) | (Types_trunc_uniq == 3)
+                    ]
+                    if len(Pos_Cat_u) == 0 or len(Pos_An_u) == 0:
+                        continue
+                    D = sd.cdist(Pos_Cat_u, Pos_An_u)
+                    D[D == 0] = 100
+                
                 Dist_list.append(D[D < rdf_max].ravel())
 
     return Dist_list, Cat_count_An_tot[:Num_Cat], An_count_Cat_tot[:Num_An]
@@ -379,7 +388,7 @@ def plot_rdf_type1type2(Pos, Types,
     font_weight     : str    – tick/label font weight
     title_font_weight : str  – title font weight
     """
-    Dist_list, _, _ = _compute_hist_neighbors(
+    Dist_list, _, _ = compute_hist_neighbors(
         Pos, Types,
         threshold_type1=threshold_type1, threshold_type2=threshold_type2,
         periodic=periodic, Lims=Lims, rdf_max=rdf_max,
@@ -427,6 +436,7 @@ def plot_rdf_type1type2(Pos, Types,
     plt.setp(ax.get_yticklabels(), color='black', weight=font_weight, fontsize=30)
     plt.setp(ax.get_xticklabels(), color='black', weight=font_weight, fontsize=30)
     plt.tight_layout()
+    plt.savefig("rdf_oxide.svg")
     plt.show()
 
 
@@ -522,7 +532,7 @@ def plot_rdf_metal(Pos, Types, type_id=1, cube=50, a_theory=4.078, bins=100, rdf
     dark_dark_purple = np.array([ 34,  10, 120]) / 255
     Dist_flat        = np.concatenate(Dist_list) if Dist_list else np.array([])
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(12, 10))
     for spine in ax.spines.values():
         spine.set_linewidth(5)
 
@@ -552,7 +562,7 @@ def plot_rdf_metal(Pos, Types, type_id=1, cube=50, a_theory=4.078, bins=100, rdf
     plt.setp(ax.get_yticklabels(), color='black', weight=font_weight, fontsize=30)
     plt.setp(ax.get_xticklabels(), color='black', weight=font_weight, fontsize=30)
     plt.tight_layout()
-    plt.show()
+    plt.savefig("rdf_metal.svg")
 
 
 # ---------------------------------------------------------------------------
@@ -662,7 +672,8 @@ def check_metal_structure(Pos, Types,
     cn_vals  = sorted(report['cn_counts'].keys())
     cn_freqs = [report['cn_counts'][c] for c in cn_vals]
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize =(12,8))
+    
     for spine in ax.spines.values():
         spine.set_linewidth(5)
 
@@ -693,7 +704,7 @@ def check_metal_structure(Pos, Types,
     plt.setp(ax.get_yticklabels(), color='black', weight=font_weight, fontsize=30)
     plt.setp(ax.get_xticklabels(), color='black', weight=font_weight, fontsize=30)
     plt.tight_layout()
-    plt.show()
+    plt.savefig("coordination_metal.svg")
 
     return report
 
@@ -713,7 +724,7 @@ def compute_analysis(Pos, Types, hist_Dens, hist_Si, hist_O,
     -------
     [hist_Dens, hist_Si, hist_O], Counts
     """
-    Dist_list, Cat_count_An, An_count_Cat = _compute_hist_neighbors(
+    Dist_list, Cat_count_An, An_count_Cat = compute_hist_neighbors(
         Pos, Types,
         threshold_type1=threshold_type1, threshold_type2=threshold_type2,
         threshold_H=threshold_H, periodic=periodic, Lims=Lims, rdf_max=rdf_max,
@@ -884,7 +895,7 @@ def save_defects(file_name, Pos, Types, periodic=False, Lims=[],
     Normal coordination (type 1 → 1, type 2 → 2) is preserved; under- and
     over-coordinated atoms receive higher type ids for easy visualisation.
     """
-    _, Cat_count_An, An_count_Cat = _compute_hist_neighbors(
+    _, Cat_count_An, An_count_Cat = compute_hist_neighbors(
         Pos, Types, cube=30, periodic=periodic, Lims=Lims, rdf_max=5,
         cation_type=cation_type, anion_type=anion_type,
     )
@@ -1001,7 +1012,7 @@ def analyze_defects(Pos, Types, periodic=False, Lims=[],
                     Cycles=None, L_cycles=None,
                     d_spacing=5, isovalue=1., alpha=2., prec=20,
                     d=10, length_box=20, smoothing=1000, N_th=8,
-                    cation_type=1, anion_type=2):
+                    cation_type=1, anion_type=2, metal = False):
     """
     Visualise structural defects overlaid on a Gaussian isosurface.
 
@@ -1011,9 +1022,9 @@ def analyze_defects(Pos, Types, periodic=False, Lims=[],
                     d=10, length_box=20, smoothing=1000, N_th=8,
                     cation_type=1, anion_type=2):
     """
-    _, Cat_count_An, An_count_Cat = _compute_hist_neighbors(
+    _, Cat_count_An, An_count_Cat = compute_hist_neighbors(
         Pos, Types, cube=30, periodic=periodic, Lims=Lims, rdf_max=5,
-        cation_type=cation_type, anion_type=anion_type,
+        cation_type=cation_type, anion_type=anion_type, metal = metal
     )
 
     plotter = pv.Plotter()
@@ -1024,40 +1035,44 @@ def analyze_defects(Pos, Types, periodic=False, Lims=[],
                   "blue", "navy", "black"]
     for n_bonds in range(7):
         mask = Cat_count_An == n_bonds
-        if n_bonds == 4 or not mask.any():
+        if not mask.any():
+            continue
+        if n_bonds == 4 and not metal:
             continue
         data = pv.PolyData(Pos[Types == cation_type][mask])
         plotter.add_mesh(data.glyph(scale=False, geom=sp, orient=False),
                          opacity=1.0, color=Colors_Cat[n_bonds],
                          name=f"Cat_{n_bonds}")
 
-    sp = pv.Sphere(radius=0.4)
-    Colors_An = ["white", "orange", "red", "darkred", "black"]
-    for n_bonds in range(5):
-        mask = An_count_Cat == n_bonds
-        if n_bonds == 2 or not mask.any():
-            continue
-        data = pv.PolyData(Pos[Types == anion_type][mask])
-        plotter.add_mesh(data.glyph(scale=False, geom=sp, orient=False),
-                         opacity=1.0, color=Colors_An[n_bonds],
-                         name=f"An_{n_bonds}")
+    if not metal:
+        anion_mask = (Types == anion_type) | (Types == 3)
+        sp = pv.Sphere(radius=0.4)
+        Colors_An = ["white", "orange", "red", "darkred", "black"]
+        for n_bonds in range(5):
+            mask = An_count_Cat == n_bonds
+            if n_bonds == 2 or not mask.any():
+                continue
+            data = pv.PolyData(Pos[anion_mask][mask])
+            plotter.add_mesh(data.glyph(scale=False, geom=sp, orient=False),
+                            opacity=1.0, color=Colors_An[n_bonds],
+                            name=f"An_{n_bonds}")
 
-    Lx, Ly, Lz = np.max(Pos, axis=0) + d
-    lx, ly, lz = np.min(Pos, axis=0) - d
-    Nx = int(round((Lx - lx + 2*d) / d_spacing)) + 1
-    Ny = int(round((Ly - ly + 2*d) / d_spacing)) + 1
-    Nz = int(round((Lz - lz + 2*d) / d_spacing)) + 1
+        Lx, Ly, Lz = np.max(Pos, axis=0) + d
+        lx, ly, lz = np.min(Pos, axis=0) - d
+        Nx = int(round((Lx - lx + 2*d) / d_spacing)) + 1
+        Ny = int(round((Ly - ly + 2*d) / d_spacing)) + 1
+        Nz = int(round((Lz - lz + 2*d) / d_spacing)) + 1
 
-    grid    = pv.ImageData(dimensions=(Nx, Ny, Nz),
-                           origin=(lx - d, ly - d, lz - d),
-                           spacing=(d_spacing, d_spacing, d_spacing))
-    cube    = compute_quick_surface(Pos, grid, [[Lx, lx], [Ly, ly], [Lz, lz]],
-                                    alpha=alpha, prec=prec, d=d,
-                                    length_box=length_box, N_th=N_th)
-    contour = grid.contour(isosurfaces=(isovalue,), scalars=cube)
-    smooth  = contour.smooth(n_iter=int(smoothing)) if smoothing else contour
-    plotter.add_mesh(smooth, opacity=0.1, color="red", name="contour")
-    plotter.show()
+        grid    = pv.ImageData(dimensions=(Nx, Ny, Nz),
+                            origin=(lx - d, ly - d, lz - d),
+                            spacing=(d_spacing, d_spacing, d_spacing))
+        cube    = compute_quick_surface(Pos, grid, [[Lx, lx], [Ly, ly], [Lz, lz]],
+                                        alpha=alpha, prec=prec, d=d,
+                                        length_box=length_box, N_th=N_th)
+        contour = grid.contour(isosurfaces=(isovalue,), scalars=cube)
+        smooth  = contour.smooth(n_iter=int(smoothing)) if smoothing else contour
+        plotter.add_mesh(smooth, opacity=0.1, color="red", name="contour")
+        plotter.show()
 
 
 def analyze_density(Pos, periodic=False, Lims=[],
@@ -1241,6 +1256,29 @@ def validate_unit_cell(Atom_pos, Atom_types, Lims,
 def visualize_structure(Pos, Types, Lims=None, point_size=12, type_colors=None,
                         sphere=True, parallel_proj=True,
                         draw_bonds=False, max_bond_dist=2.0): 
+    """Render the atomic structure in 3D using PyVista.
+
+    Parameters
+    ----------
+    Pos : ndarray
+        Atom positions.
+    Types : ndarray
+        Atom type ids.
+    Lims : list, optional
+        Box limits for drawing the simulation cell.
+    point_size : int, optional
+        Size of rendered atoms.
+    type_colors : dict, optional
+        Mapping from type id to display color.
+    sphere : bool, optional
+        Render atoms as spheres when True.
+    parallel_proj : bool, optional
+        Use parallel projection.
+    draw_bonds : bool, optional
+        Draw bonds between unlike atom types.
+    max_bond_dist : float, optional
+        Distance cutoff used for bond drawing.
+    """
     if type_colors is None:
         type_colors = {1: 'gold', 2: 'red', 3: 'blue', 4: [255, 255, 0]}
 
@@ -1282,6 +1320,33 @@ def visualize_structure_cast_surface_separation(Pos, Types, Lims=None, point_siz
                                                 type_colors=None, sphere=True,
                                                 parallel_proj=True,
                                                 cast_mask=None, cast=False):
+    """Visualize surface and cast atoms separately in a 3D PyVista plot.
+
+    Parameters
+    ----------
+    Pos : ndarray
+        Atom positions.
+    Types : ndarray
+        Atom type ids.
+    Lims : array-like, optional
+        Simulation box limits.
+    point_size : int, optional
+        Point size for rendered atoms.
+    type_colors : dict, optional
+        Mapping of atom types to RGB color lists.
+    sphere : bool, optional
+        Whether to render atoms as spheres.
+    parallel_proj : bool, optional
+        Enable parallel projection in the PyVista scene.
+    cast_mask : ndarray, optional
+        Boolean mask selecting cast atoms.
+    cast : bool, optional
+        If True and no mask is provided, treat all atoms as cast atoms.
+
+    Returns
+    -------
+    None
+    """
     radii = {1: 0.5, 2: 0.4, 3: 0.8, 4: 0.8}
     plotter = pv.Plotter()
 

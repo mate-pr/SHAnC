@@ -18,6 +18,7 @@ from Construction.import_libraries import *
 from Construction.distortion import *
 from Construction.read_write import *
 from Construction.analysis import *
+from scipy.spatial import cKDTree
 
 BOND_TYPE_MAP = {
     (frozenset({'C', 'H'}), 1): 1,
@@ -191,6 +192,18 @@ def _order_contour_trigo(Pos_slice_contour):
     return ordered_points, center
 
 def _contour_perimeter(ordered_points):
+    """Compute the perimeter length of a closed contour.
+
+    Parameters
+    ----------
+    ordered_points : array_like
+        Sequence of 2D contour points ordered along the boundary.
+
+    Returns
+    -------
+    float
+        Total contour perimeter.
+    """
     xy = ordered_points[:,:2]
 
     xy_closed = np.vstack([xy, xy[0]])
@@ -199,7 +212,23 @@ def _contour_perimeter(ordered_points):
     distances = np.linalg.norm(diffs, axis = 1)
     return np.sum(distances)
 
+
 def compute_surface_method_2(contour_per_slice, dz = 1.0):
+    """Estimate surface area by integrating contour perimeters over z-slices.
+
+    Parameters
+    ----------
+    contour_per_slice : list of tuple
+        Each entry is (z0, contour_pts), where contour_pts are 3D points on
+        the surface contour at slice z0.
+    dz : float
+        Slice thickness used for the integration.
+
+    Returns
+    -------
+    float
+        Estimated surface area from slice perimeter integration.
+    """
     total_surface = 0.0
     for z0, contour_pts in contour_per_slice:
         if len(contour_pts) < 3:
@@ -215,6 +244,12 @@ def compute_surface_method_2(contour_per_slice, dz = 1.0):
 # Method 3: circle perimeter difference calculation
 
 def _perimeter_circle1_minus_cirlcle2(C1, R1, C2, R2):
+    """Compute the effective perimeter of two overlapping circles.
+
+    This helper returns the outer perimeter length defined by a larger
+    circle and a smaller secondary circle whose radius depends on a
+    surface approximation.
+    """
     distance_centres = np.linalg.norm(np.array(C2) - np.array(C1))
     if distance_centres + R2 <= R1:
         return 2*np.pi*R1 
@@ -231,6 +266,24 @@ def _perimeter_circle1_minus_cirlcle2(C1, R1, C2, R2):
     return arc_C1_outside_C2 + arc_C2_inside_C1
 
 def compute_surface_method_3(Pos, list_BOX, dz = 1.0, n_points = 1000):
+    """Estimate surface area by comparing nested slice circles.
+
+    Parameters
+    ----------
+    Pos : ndarray
+        Atom positions for the system.
+    list_BOX : list
+        Simulation box limits and voxel parameters.
+    dz : float
+        Slice thickness for the contour extraction.
+    n_points : int
+        Number of sample points used to create the circle approximation.
+
+    Returns
+    -------
+    float
+        Estimated surface area from the circle-based slice model.
+    """
     z_max = list_BOX[0][2][1]
     z_values = np.arange(0, z_max, dz)
     total_surface = 0.0
@@ -253,6 +306,20 @@ def compute_surface_method_3(Pos, list_BOX, dz = 1.0, n_points = 1000):
 # Method 4: tubular surface area estimate
 
 def compute_surface_method_4(radius, pitch):
+    """Estimate the surface area using a tubular helix approximation.
+
+    Parameters
+    ----------
+    radius : float
+        Helix radius.
+    pitch : float
+        Helix pitch.
+
+    Returns
+    -------
+    float
+        Surface area approximation for a tube-like helix.
+    """
     approx_surface_with_cylinder = 2*2*np.pi*radius*pitch
     return approx_surface_with_cylinder
 
@@ -262,6 +329,11 @@ def compute_surface_method_4(radius, pitch):
 # Method 5: transformed cuboid surface estimation
 
 def _compute_D_transfo(D_exp, pitch, width, thickness):
+    """Compute the transformed diameter for a cuboid-to-helix surface estimate.
+
+    This helper solves the geometric relation used by the transformed cuboid
+    surface approximation in `compute_surface_method_5`.
+    """
     W = width
     P = pitch/2/np.pi
     T = thickness
@@ -293,14 +365,47 @@ def _compute_D_transfo(D_exp, pitch, width, thickness):
 # Helper: quadrilateral mesh area calculation
 
 def _quad_area(pts):
-        A, B = pts[:-1, :-1], pts[1:, :-1]
-        C, D = pts[1:, 1:], pts[:-1, 1:]
-        t1 = 0.5*np.linalg.norm(np.cross(B-A, C-A, axis = -1), axis = -1)
-        t2 = 0.5*np.linalg.norm(np.cross(C-A, D-A, axis = -1), axis = -1)
-        return np.sum((t1 + t2))    
+    """Compute area of a quadrilateral mesh by splitting quads into triangles."""
+    A, B = pts[:-1, :-1], pts[1:, :-1]
+    C, D = pts[1:, 1:], pts[:-1, 1:]
+    t1 = 0.5*np.linalg.norm(np.cross(B - A, C - A, axis=-1), axis=-1)
+    t2 = 0.5*np.linalg.norm(np.cross(C - A, D - A, axis=-1), axis=-1)
+    return np.sum((t1 + t2))
 
-def compute_surface_method_5(Pos, diameter, width, thickness, pitch, list_BOX, n_x = 100, n_z = 100, n_y = 100, n = 10, circling = True, face = 'outer'):
-    Lims_initial, Atom_types, Atom_pos = read_data("beta_quartz.data", do_scale=False,atom_style="atom")
+
+def compute_surface_method_5(Pos, diameter, width, thickness, pitch, list_BOX, n_x=100, n_z=100, n_y=100, n=10, circling=True, face='outer'):
+    """Estimate helix surface area from a transformed cuboid mesh sample.
+
+    Parameters
+    ----------
+    Pos : ndarray
+        Atomic positions for the system.
+    diameter : float
+        Effective helix diameter.
+    width : float
+        Width of the cuboid transformation.
+    thickness : float
+        Thickness of the transformed cuboid.
+    pitch : float
+        Helix pitch.
+    list_BOX : list
+        Box limits used for surface extraction.
+    n_x, n_z, n_y : int
+        Sampling resolution along each axis.
+    n : int
+        Number of points per side for mesh generation.
+    circling : bool
+        Whether to compute a circular rearrangement.
+    face : str
+        Surface face selection mode.
+
+    Returns
+    -------
+    float
+        Estimated surface area from the cuboid-based mesh.
+    """
+
+    Lims_initial, Atom_types, Atom_pos, _ = read_data("beta_quartz.data", do_scale=False,atom_style="atom")
     #Get the number of duplication needed to get the proper dimensions
     lx = Lims_initial[0][1] - Lims_initial[0][0]
     ly = Lims_initial[1][1] - Lims_initial[1][0]
@@ -335,8 +440,6 @@ def compute_surface_method_5(Pos, diameter, width, thickness, pitch, list_BOX, n
         D=D_transfo,
         rota=1.0,
         do_periodic=True,
-        circling=True,
-        do_rota_transf=False,
         params_helix=[pitch, width, thickness],
     )
 
@@ -347,7 +450,8 @@ def compute_surface_method_5(Pos, diameter, width, thickness, pitch, list_BOX, n
     mask_flat[contour_indices_global] = True
     mask_grid = mask_flat.reshape(n,n,n)
 
-    total = _quad_area(pts_grid, mask_grid)/n
+    total = _quad_area(pts_grid)/n
+
     return total
 
 
@@ -508,6 +612,24 @@ def visualize_slice_with_circles(
 # XYZ loader with auto type mapping (based on element symbols in the file).
 # This returns positions and inferred atom types but no bond information.
 def _load_molecule_from_xyz(file, type_map = {}):
+    """Load an XYZ file and infer atom type ids from symbols.
+
+    Parameters
+    ----------
+    file : str
+        Path to the XYZ file.
+    type_map : dict
+        Symbol-to-type-id mapping.
+
+    Returns
+    -------
+    mol_pos : ndarray
+        Array of atom positions.
+    mol_types : list[int]
+        Atom type ids for each atom.
+    auto_type_map : dict
+        Mapping from inferred type ids to element symbols.
+    """
     list_TSTEP, list_NUM_AT, list_BOX, list_ATOMS = read_xyz(file, type_map)
     atoms = np.asarray(list_ATOMS[0])
     mol_pos = atoms[:, 2:5].astype(float)
@@ -658,6 +780,24 @@ def _prepare_mol(file, type_map={}):
 
 # Compute outward surface normal
 def _compute_outward_normal(Si_pos, tree, Pos_all, cutoff = 6.0):
+    """Estimate the outward surface normal for a silicon anchor site.
+
+    Parameters
+    ----------
+    Si_pos : ndarray
+        Position of the silicon anchor.
+    tree : KDTree
+        Neighbor search tree for surface atoms.
+    Pos_all : ndarray
+        All atom positions in the system.
+    cutoff : float
+        Search radius for neighbor atoms.
+
+    Returns
+    -------
+    ndarray
+        Unit vector pointing away from the local surface.
+    """
     neighbor_ids = tree.query_ball_point(Si_pos, r=cutoff)
     if len(neighbor_ids) < 2:
         return np.array([0.0, 0.0, 1.0])
@@ -674,6 +814,26 @@ def _compute_outward_normal(Si_pos, tree, Pos_all, cutoff = 6.0):
 
 # Align molecule to the outward normal
 def _align_mol_to_normal(mol_pos, mol_types, attach_idx, outward_normal, type_map):
+    """Rotate a molecule so its attachment direction aligns with the surface normal.
+
+    Parameters
+    ----------
+    mol_pos : ndarray
+        Molecule atom positions.
+    mol_types : list[int]
+        Molecule atom types.
+    attach_idx : int
+        Index of the attachment atom.
+    outward_normal : ndarray
+        Target outward normal vector.
+    type_map : dict
+        Mapping from type ids to element symbols.
+
+    Returns
+    -------
+    ndarray
+        Aligned molecule positions.
+    """
     mol_c = mol_pos - mol_pos[attach_idx]
     symbols = np.array([type_map[t] for t in mol_types])
     N_idx = np.where(symbols == 'N')[0][0]
@@ -995,7 +1155,7 @@ def graft_molecules(
 
     _, Si_count_O, _ = compute_hist_neighbors(
         Pos_contour, Types_contour,
-        cube=30, threshold_Si=2, threshold_O=2, threshold_H=1.3, rdf_max=5,
+        cube=30, threshold_type1=2, threshold_type2=2, threshold_H=1.3, rdf_max=5,
     )
     Si_contour_idx = np.where(Types_contour == Si_type)[0]
     insat_mask     = np.array([c == Si_coordination for c in Si_count_O])
@@ -1162,6 +1322,32 @@ def graft_molecules(
     )
 
 def compute_grafted_Si_C_distances(Pos, Types, mol_pos, mol_types, Si_type=1, C_type = 5, bond_cutoff = 2.5, dr = 0.01):
+    """Compute and plot distances between grafted carbon atoms and surface silicon.
+
+    Parameters
+    ----------
+    Pos : ndarray
+        All atom positions in the system.
+    Types : ndarray
+        Atom type ids.
+    mol_pos : ndarray
+        Positions of the grafted molecule atoms.
+    mol_types : list[int]
+        Type ids for the molecule atoms.
+    Si_type : int, optional
+        Type id used for silicon atoms.
+    C_type : int, optional
+        Type id used for carbon atoms.
+    bond_cutoff : float, optional
+        Maximum distance considered a bond.
+    dr : float, optional
+        Bin width for the histogram.
+
+    Returns
+    -------
+    ndarray
+        Array of Si-C distances for bonded carbon atoms.
+    """
     Si_idx = np.where(Types == Si_type)[0]
     Pos_Si = Pos[Si_idx]
     tree_Si = cKDTree(Pos_Si)
@@ -1347,6 +1533,28 @@ def _split_molecule_list(all_pos_stacked, all_types_stacked, n_atoms_per_mol):
 
 
 def _prepare_chromophore(file, type_map={}):
+    """Load a chromophore SDF and remove a terminal carboxyl OH group.
+
+    Parameters
+    ----------
+    file : str
+        Path to the chromophore SDF file.
+    type_map : dict, optional
+        Symbol-to-type-id mapping.
+
+    Returns
+    -------
+    mol_pos_clean : ndarray
+        Cleaned atom positions.
+    mol_types_clean : ndarray
+        Cleaned atom types.
+    bonds_clean : list
+        Cleaned bond list after OH removal.
+    carboxyl_C_idx_adj : int
+        Attachment carbon index after removal.
+    auto_type_map : dict
+        Inverse type map from ids to symbols.
+    """
     # 1. Load data
     mol_pos, mol_types, bonds, auto_type_map = _load_molecule_from_sdf(file, type_map)
     symbols = np.array([auto_type_map[t] for t in mol_types])
@@ -1419,6 +1627,26 @@ def _prepare_chromophore(file, type_map={}):
 
 # Chromophore axis helpers
 def _align_mol_to_axis(mol_pos, attach_idx, mol_axis, target_axis, surface_normal):
+    """Align the chromophore along a target axis while preserving the attachment point.
+
+    Parameters
+    ----------
+    mol_pos : ndarray
+        Cartesian positions of the chromophore atoms.
+    attach_idx : int
+        Index of the atom used for placement.
+    mol_axis : ndarray
+        Current axis direction of the chromophore.
+    target_axis : ndarray
+        Desired target axis direction.
+    surface_normal : ndarray
+        Local surface normal used as a reference plane.
+
+    Returns
+    -------
+    ndarray
+        Rotated chromophore positions aligned to the target axis.
+    """
     mol_c = mol_pos - mol_pos[attach_idx]
 
     e1 = mol_axis/np.linalg.norm(mol_axis)
@@ -1446,6 +1674,22 @@ def _align_mol_to_axis(mol_pos, attach_idx, mol_axis, target_axis, surface_norma
     return aligned
 
 def _anchor_mol_axis(mol_pos, mol_types, type_map):
+    """Return the molecular axis vector based on the most distal carbon from nitrogen.
+
+    Parameters
+    ----------
+    mol_pos : ndarray
+        Atom positions of the chromophore.
+    mol_types : list[int]
+        Atom type ids of the chromophore.
+    type_map : dict
+        Mapping from type ids to element symbols.
+
+    Returns
+    -------
+    ndarray
+        Vector from the most distal carbon atom to the nitrogen atom.
+    """
     symbols = np.array([type_map[t] for t in mol_types])
     N_idx = np.where(symbols == "N")[0][0]
     C_indices = np.where(symbols == "C")[0]
@@ -1454,6 +1698,20 @@ def _anchor_mol_axis(mol_pos, mol_types, type_map):
     return mol_pos[N_idx] - mol_pos[base_C_idx]
 
 def _chromophore_mol_axis(mol_pos, attach_idx):
+    """Compute the chromophore axis from the attachment atom to the centroid of remaining atoms.
+
+    Parameters
+    ----------
+    mol_pos : ndarray
+        Atom positions of the chromophore.
+    attach_idx : int
+        Index of the attachment atom.
+
+    Returns
+    -------
+    ndarray
+        Vector from the attachment atom to the chromophore centroid.
+    """
     other_mask = np.ones(len(mol_pos), dtype = bool)
     other_mask[attach_idx] = False
     centroid = np.mean(mol_pos[other_mask], axis = 0)
@@ -1464,7 +1722,22 @@ def _chromophore_mol_axis(mol_pos, attach_idx):
 # Anchor orientation helpers
 
 def _anchor_N_axis(anchor_pos, anchor_types, anchor_type_map):
-  
+    """Compute the nitrogen atom position and axis for an anchor molecule.
+
+    Parameters
+    ----------
+    anchor_pos : ndarray
+        Atom positions of the anchor molecule.
+    anchor_types : list[int]
+        Atom type ids of the anchor.
+    anchor_type_map : dict
+        Mapping from type ids to element symbols.
+
+    Returns
+    -------
+    tuple
+        Nitrogen position and normalized axis vector.
+    """
     symbols = np.array([anchor_type_map[t] for t in anchor_types])
     N_idx   = np.where(symbols == 'N')[0][0]
     N_pos   = anchor_pos[N_idx]
@@ -1474,7 +1747,27 @@ def _anchor_N_axis(anchor_pos, anchor_types, anchor_type_map):
     return N_pos, axis / np.linalg.norm(axis)
 
 
-def compute_surface_normal_(target_pos, tree_surface, Pos, Types,search_radius=10.0):
+def compute_surface_normal_(target_pos, tree_surface, Pos, Types, search_radius=10.0):
+    """Estimate the local surface normal from nearby surface atoms.
+
+    Parameters
+    ----------
+    target_pos : ndarray
+        Position on the surface where the normal is evaluated.
+    tree_surface : KDTree
+        Surface atom neighbor search tree.
+    Pos : ndarray
+        Array of all atom positions.
+    Types : ndarray
+        Array of all atom type ids.
+    search_radius : float, optional
+        Radius for selecting neighboring surface atoms.
+
+    Returns
+    -------
+    ndarray
+        Normalized surface normal vector.
+    """
     ids = tree_surface.query_ball_point(target_pos, r = search_radius)
     if not ids:
         raise ValueError("No surface atoms found within cutoff for normal estimation.")

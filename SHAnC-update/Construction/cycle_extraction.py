@@ -128,6 +128,76 @@ def clean_cycles(Cycles):
 
     return [cycle for cycle, kept in zip(Cycles, Cycles_S) if kept]
 
+
+
+def xor_rm(Cycles):
+    """Remove redundant cycles from a list of candidate cycle paths.
+
+    Parameters
+    ----------
+    Cycles : list[list[int]]
+        Candidate cycles represented by sequences of atom or edge indices.
+
+    Returns
+    -------
+    list[list[int]]
+        Filtered list containing only independent cycles.
+    """
+    import time
+    # def convert_back(cycle,max_ind):
+    #     cycle_pairs = []
+    #     for ind in cycle:
+    #         ind_m = ind%max_ind
+    #         ind_M = ind//max_ind
+    #         cycle_pairs.append([ind_M,ind_m])
+    #     return cycle_pairs
+    a=time.time()
+
+    Cycles_S = [True for k in range(len(Cycles))]
+
+    Cycle_lin = [ind for cycle in Cycles for ind in cycle]
+    max_ind = np.max(Cycle_lin)+1
+
+    #Convert to edges
+    Edges_set = []
+    for cycle in Cycles:
+        cycle_r = np.roll(cycle,1)
+        cycle_add = []
+        for ind,ind_r in zip(cycle,cycle_r):
+            ind_M, ind_m = max(ind,ind_r),min(ind,ind_r)
+            cycle_add.append(ind_m*max_ind + ind_M)
+        Edges_set.append(set(cycle_add))
+
+    A = 0
+    B = 0
+    for cycle_set,ind_cycle_set in zip(Edges_set,range(len(Edges_set))):
+
+        Edges_set_red = []
+        Edges_set_red_ind = []
+        for edge_set,edge_set_ind in zip(Edges_set,range(len(Edges_set))):
+            #Get cycles that have at least one edge in common
+            if len(cycle_set.intersection(edge_set)):
+                Edges_set_red.append(edge_set)
+                Edges_set_red_ind.append(edge_set_ind)
+
+        for cycle_set_2,ind_cycle_set_red_2 in zip(Edges_set_red,range(len(Edges_set_red))):
+            ind_cycle_set_2 = Edges_set_red_ind[ind_cycle_set_red_2]
+
+            if Cycles_S[ind_cycle_set] and Cycles_S[ind_cycle_set_2]:
+                new_cycle = cycle_set.symmetric_difference(cycle_set_2)
+
+                if new_cycle in Edges_set_red:
+                    if len(cycle_set) >= len(cycle_set_2) and len(cycle_set) >= len(new_cycle): Cycles_S[ind_cycle_set] = False
+                    elif len(cycle_set_2) >= len(new_cycle): Cycles_S[ind_cycle_set_2] = False
+                    else: Cycles_S[Edges_set.index(new_cycle)] = False
+
+    Cycles_return = []
+    print(np.sum(Cycles_S),len(Cycles_S),Cycles_S[:5])
+    for cycle,is_kept in zip(Cycles,Cycles_S):
+        if is_kept: Cycles_return.append(cycle)
+    return Cycles_return
+
+
 def find_cycles(Bonds):
     """Extract simple cycles from a bond adjacency matrix."""
     G = nx.from_numpy_array(Bonds)
@@ -163,7 +233,7 @@ def find_cycles(Bonds):
 # Cycle visualization and output
 # ---------------------------------------------------------------------------
 
-def visualize_cycles(Pos, Types, Cycles):
+def visualize_cycles(Pos, Types, Cycles, list_BOX):
     """Render a 3D visualization of the detected cycles on the Si sublattice."""
     start = time.time()
     Bonds = compute_bonds_graph(Pos, Types, cube=50, periodic=False, Lims=list_BOX[-1])
@@ -485,130 +555,5 @@ def add_hydrogen_to_oxygens(Pos, Types, external_o_indices, cycle_si_local_indic
         
     return np.array(new_h_pos)
 
-
-
-
-
-if __name__=="__main__":
-
-    # file = "quartz_dupl.data"
-    # list_BOX,list_ATOMS = read_data(file,do_scale=False)
-
-    # file = "demo/dump_last_oh.lammpstrj"
-    # file = "dummp_trimmed.lammpstrj"
-    # file = "demo/dummp_128.lammpstrj"
-    # file = "demo/dummp_256.lammpstrj"
-    # file = "demo/dummp_512.lammpstrj"
-    # file = "demo/dummp_1024.lammpstrj"
-    # file = "dummps_snad_last.lammpstrj"
-    # file = "demo/dummps_round_2_last.lammpstrj"
-    file = "sio2/13497439/last_timestep.lammpstrj"
-    # file = "sio2/13800979/last_timestep.lammpstrj" # cuboid
-    # file = "sio2/Helicetest_P400/last_timestep.lammpstrj"
-    # file = "dummps_long_last.lammpstrj"
-
-    # file = "sio2/13800979/cuboid.data"
-
-    # list_TSTEP, list_NUM_AT, list_BOX, list_ATOMS = read_dump(file,unscale=True)
-    # list_BOX, list_ATOMS = read_data(file)
-    # write_dump("cuboid_no_relax.lammpstrj", list_TSTEP=[0],list_NUM_AT=[69774],list_ATOMS=list_ATOMS, list_BOX=np.array(list_BOX))
-    # file = "cuboid_no_relax.lammpstrj"
-    list_TSTEP, list_NUM_AT, list_BOX, list_ATOMS = read_dump(file,unscale=True)
-    list_TSTEP=[0]
-    list_Pos = list_ATOMS[:,:,2:]
-    list_Types = list_ATOMS[:,:,1]
-    Pos = list_ATOMS[-1][:,2:]
-    Types = list_ATOMS[-1][:,1]
-
-
-    if False:
-        print("Computing bonds and cycles from scratch...")
-        Bonds = compute_bonds_graph(Pos,Types,cube=50,periodic=False,Lims=list_BOX[-1])
-        print("Finding cycles...")
-        a = time.time()
-        Cycles,L_cycles = find_cycles(Bonds)
-        Cycles = xor_rm(Cycles)
-        save_cycles(Pos, Types, Cycles, file="cycles_cuboid_no_relax.txt")
-        print(time.time()-a)
-    else:
-        Cycles,L_cycles,Pos_cycles, O_ids = read_cycles(file="cycles.txt")
-    # Cycles,L_cycles,Pos_cycles, O_ids = read_cycles(file="cycles_cuboid_no_relax.txt")
-
-    from collections import Counter
-    count_cycles = Counter(L_cycles)
-    total_cycles = len(L_cycles)
-
-    max_type = max(count_cycles, key = count_cycles.get)
-    max_count = count_cycles[max_type]
-    print(f"{'Cycle Size':<12} | {'Count':<10} | {'Percentage':<12} | {'Relative to Max'}")
-    print("-" * 60)
-    for size in sorted(count_cycles.keys()):
-        count = count_cycles[size]
-        percentage = (count / total_cycles) * 100
-        relative_to_max = (count / max_count) * 100
-        print(f"{size:< 12} | {count:< 10} | {percentage:<11.2f}% | {relative_to_max:>14.2f}%")
-    print("-" * 60)
-    print(f"Total Cycles: {total_cycles}")
-    print(f"Most Common Cycle Size: {max_type} with {max_count} occurrences ({(max_count / total_cycles) * 100:.2f}%)")
-    
-    EXTRACT_CYCLES = True
-    ADD_H = False
-    TARGET_SIZE = 6
-    BOND_CUTOFF = 1.8
-
-    if EXTRACT_CYCLES:
-        if ADD_H:
-            extract_cycles_to_files(Cycles, L_cycles, O_ids, Types, Pos, target_size=TARGET_SIZE, add_h=ADD_H, threshold=BOND_CUTOFF)
-        else:
-            extract_cycles_to_files(Cycles, L_cycles, O_ids, Types, Pos, target_size=TARGET_SIZE, threshold=BOND_CUTOFF)
-
-        # --- Count atoms per cycle of target size ---
-        si_global_indices = np.where(Types == 1)[0]
-        atom_counts = []
-
-        for i, size in enumerate(L_cycles):
-            if size != TARGET_SIZE:
-                continue
-
-            ext_o = get_external_oxygens_validated(
-                Pos, Types, Cycles[i], O_ids[i], threshold=BOND_CUTOFF
-            )
-            if ext_o is None:
-                continue  # same cycles that were skipped during extraction
-
-            n_atoms = size + len(O_ids[i]) + len(ext_o)
-            atom_counts.append(n_atoms)
-
-        atom_counts = np.array(atom_counts)
-
-        print(f"\n--- Cycle size {TARGET_SIZE} atom count statistics ---")
-        print(f"Total valid cycles : {len(atom_counts)}")
-        print(f"Min atoms          : {atom_counts.min()}")
-        print(f"Max atoms          : {atom_counts.max()}")
-        print(f"Mean atoms         : {atom_counts.mean():.1f}")
-        print(f"Cycles with < 24 atoms: {np.sum(atom_counts < 24)}")
-
-        # Optional: histogram
-        unique, counts = np.unique(atom_counts, return_counts=True)
-        print("\nAtom count distribution:")
-        for u, c in zip(unique, counts):
-            print(f"  {u} atoms : {c} cycle(s)")
-        
-
-
-
-    # L_cycles = [len(cycle) for cycle in Cycles]
-
-    # C = np.zeros((np.max(L_cycles)+3),dtype="int")
-    # for k in L_cycles:
-    #     C[k]+=1
-    # print(C)
-
-    visualize_cycles(Pos,Types,Cycles)
-    
-    # save_cycles(Pos,Types,Cycles,file="cycles_60ps.txt")
-    # plot_cycles(L_cycles)
-    # G = nx.from_numpy_array(Bonds)
-    # print(len(Cycles),(G.number_of_edges() - G.number_of_nodes() + 1))
 
   

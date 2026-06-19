@@ -22,4 +22,3 @@ from Construction.distortion import create_syst
 ## Purpose
 
 This package provides the reusable building blocks for creating silica nanohelix geometries, analyzing their structure, and attaching functional molecules to reactive surface sites.
-

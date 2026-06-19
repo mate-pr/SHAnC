@@ -57,6 +57,33 @@ def _mass_to_symbol_map(mass_map):
 
 
 def read_xyz(file_name, type_map=None, metal=False):
+    """Parse an XYZ file into timestep, box, and atom arrays.
+
+    This reader supports XYZ frames with optional LAMMPS-style timestep and
+    lattice information in the comment line. If `metal=True`, the file is
+    assumed to contain a periodic metal cell and the coordinates are
+    normalized into a half-open cubic cell.
+
+    Parameters
+    ----------
+    file_name : str
+        Path to the XYZ file.
+    type_map : dict, optional
+        Optional mapping from element symbol to type id.
+    metal : bool, optional
+        Enable FCC metal cell inference.
+
+    Returns
+    -------
+    list_TSTEP : list
+        Timesteps for each frame.
+    list_NUM_AT : list
+        Atom counts per frame.
+    list_BOX : list
+        Box limits per frame.
+    list_ATOMS : ndarray
+        Atom records per frame.
+    """
     with open(file_name, "r") as f:
         lines = f.readlines()
 
@@ -521,6 +548,24 @@ def write_data(file_name, Pos, Types, Lims, test_particle=False, Bonds_OH=[], An
 
 
 def convert_data_to_xyz(file, last_only=False):
+    """Convert a LAMMPS data file to XYZ format.
+
+    Parameters
+    ----------
+    file : str
+        Input LAMMPS data filename.
+    last_only : bool, optional
+        If True, write only the final frame.
+
+    Returns
+    -------
+    Atom_pos : ndarray
+        Atom positions from the converted file.
+    Atom_types : ndarray
+        Atom type ids.
+    Lims : list
+        Box limits.
+    """
     Lims, Atom_types, Atom_pos, mass_map = read_data(file, do_scale=False, atom_style="atom")
     symbol_map = _mass_to_symbol_map(mass_map)
 
@@ -535,6 +580,28 @@ def convert_data_to_xyz(file, last_only=False):
     return Atom_pos, Atom_types, Lims
 
 def convert_dump_to_xyz(file, last_only=False, data_file=None, type_map=None):
+    """Convert a LAMMPS dump file to XYZ format.
+
+    Parameters
+    ----------
+    file : str
+        Input dump filename.
+    last_only : bool, optional
+        If True, write only the last timestep.
+    data_file : str, optional
+        Optional LAMMPS data file used to recover element type mapping.
+    type_map : dict, optional
+        Manual type_id to symbol mapping.
+
+    Returns
+    -------
+    list_TSTEP : list
+        Timesteps read from the dump.
+    list_BOX : list
+        Box limits for each frame.
+    list_ATOMS : list
+        Atom records for each frame.
+    """
     print("Reading dump file:", file)
     list_TSTEP, list_NUM_AT, list_BOX, list_ATOMS = read_dump(file, unscale=True)
 
@@ -551,6 +618,22 @@ def convert_dump_to_xyz(file, last_only=False, data_file=None, type_map=None):
 
 
 def wrap_and_deduplicate(Atom_pos, Lims, tol=1e-3):
+    """Wrap positions into the periodic cell and remove duplicate atoms.
+
+    Parameters
+    ----------
+    Atom_pos : array_like
+        Atomic Cartesian positions.
+    Lims : array_like
+        Box limits [[lx,Lx],[ly,Ly],[lz,Lz]].
+    tol : float, optional
+        Distance tolerance for duplicate elimination.
+
+    Returns
+    -------
+    ndarray
+        Wrapped, deduplicated atom positions.
+    """
     Atom_pos = np.asarray(Atom_pos, dtype=float)
     Lims = np.asarray(Lims, dtype=float)
 
