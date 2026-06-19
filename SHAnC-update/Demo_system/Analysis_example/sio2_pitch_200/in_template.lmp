@@ -1,0 +1,182 @@
+units metal
+boundary p p p
+dimension 3
+
+atom_style full
+
+variable step_calc equal 10000
+variable step_calc_2 equal 50000
+variable dump_dt equal 1
+
+variable dump_write string dummp.lammpstrj
+
+read_data quartz_dupl.data extra/atom/types 2
+read_data quartz_int.data add append offset 4 0 0 0 0
+
+
+
+
+mass 1 28.0855
+mass 2 15.9994
+mass 3 15.9994
+mass 4 1.0080
+mass 5 100000
+mass 6 100000
+
+set type 1 charge +2.4 
+set type 2 charge -1.2
+set type 3 charge -1.02
+set type 4 charge +0.42
+set type 5 charge +2.4
+set type 6 charge -1.2
+
+
+pair_style hybrid/overlay buck/coul/long 5 lj/cut 1.2
+pair_coeff 1 1 buck/coul/long 0.0 1.0 0.0
+
+pair_coeff 1 2 buck/coul/long 18003.7572 0.2052 133.5381
+pair_coeff 1 2 lj/cut 2.0 1.2 1.2
+pair_coeff 1 3 buck/coul/long 18003.7572 0.2052 133.5381
+pair_coeff 1 3 lj/cut 2.0 1.2 1.2
+
+
+pair_coeff 2 2 buck/coul/long 1388.7730 0.36232 175.00 
+pair_coeff 2 2 lj/cut 2.6 1.6 1.6
+pair_coeff 3 3 buck/coul/long 1388.7730 0.36232 175.00 
+pair_coeff 3 3 lj/cut 2.6 1.6 1.6
+pair_coeff 2 3 buck/coul/long 1388.7730 0.36232 175.00 
+pair_coeff 2 3 lj/cut 2.6 1.6 1.6
+
+
+pair_coeff 4 1 buck/coul/long 0.0 1.0 0.0
+pair_coeff 4 2 buck/coul/long 50.0 0.3 0.0
+pair_coeff 4 3 buck/coul/long 0.0 1.0 0.0
+pair_coeff 4 4 buck/coul/long 0.0 1.0 0.0
+
+pair_coeff 1 5 buck/coul/long 0.0 1.0 0.0
+pair_coeff 5 5 buck/coul/long 0.0 1.0 0.0
+pair_coeff 5 6 buck/coul/long 0.0 1.0 0.0
+pair_coeff 6 6 buck/coul/long 0.0 1.0 0.0
+pair_coeff 4 5 buck/coul/long 0.0 1.0 0.0
+pair_coeff 4 6 buck/coul/long 0.0 1.0 0.0
+
+pair_coeff 5 2 buck/coul/long 18003.7572 0.2052 133.5381
+pair_coeff 5 2 lj/cut 2.0 1.2 1.2
+pair_coeff 5 3 buck/coul/long 18003.7572 0.2052 133.5381
+pair_coeff 5 3 lj/cut 2.0 1.2 1.2
+
+pair_coeff 1 6 buck/coul/long 18003.7572 0.2052 133.5381
+pair_coeff 1 6 lj/cut 2.0 1.2 1.2
+
+pair_coeff 6 2 buck/coul/long 1388.7730 0.36232 175.00 
+pair_coeff 6 2 lj/cut 2.6 1.6 1.6
+pair_coeff 6 3 buck/coul/long 1388.7730 0.36232 175.00 
+pair_coeff 6 3 lj/cut 2.6 1.6 1.6
+
+bond_style harmonic
+bond_coeff 1 23.98 0.95
+
+
+
+neighbor 2.0 bin
+
+kspace_style pppm 1.0e-4
+
+dump dummp all atom 1 ${dump_write}
+dump_modify dummp sort id
+
+group sio type 1 2 3
+group h type 4
+velocity sio create 300.0 123
+
+
+minimize 1.0e-6 1.0e-6 1000 10000
+
+dump_modify dummp every 100
+
+fix T sio nvt temp 300.0 2000.0 0.05
+fix Th h nvt temp 300 300 0.05
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc}
+
+velocity sio create 2000.0 321
+
+fix T sio nvt temp 2000.0 2000.0 0.05
+fix Th h nvt temp 300 300 0.05
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.001
+
+run ${step_calc_2}
+
+velocity sio create 2000.0 213
+
+fix T sio nvt temp 2000.0 300.0 0.05
+fix Th h nvt temp 300 300 0.05
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc}
+
+group del_pot type 5
+group del_pot type 6
+delete_atoms group del_pot
+
+velocity sio create 300.0 312
+
+unfix T
+fix T sio nvt temp 300.0 2000.0 0.05
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc}
+
+
+velocity sio create 2000.0 1023
+
+unfix T
+fix T sio nvt temp 2000.0 2000.0 0.1
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.001
+
+run ${step_calc_2}
+
+velocity sio create 2000.0 1203
+
+unfix T
+fix T sio npt temp 2000.0 2000.0 0.05 iso 1 1 0.5
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc}
+
+
+velocity sio create 2000.0 1302
+
+unfix T
+fix T sio npt temp 2000.0 2000.0 0.05 iso 1 1 0.5
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.001
+
+run ${step_calc_2}
+
+velocity sio create 2000.0 1230
+
+unfix T
+fix T sio npt temp 2000.0 0.1 0.05 iso 1 1 0.5
+thermo_style custom step temp press etotal vol lx ly lz
+thermo 100
+timestep 0.0005
+
+run ${step_calc_2}
+
+dump_modify dummp every 1
+minimize 1.0e-6 1.0e-6 1000 10000
