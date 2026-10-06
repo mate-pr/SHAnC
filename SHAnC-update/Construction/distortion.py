@@ -640,9 +640,10 @@ def create_syst(rota,D_exp,pitch,width,thickness,int_thick, asym = 1, Twist = Fa
         # Build a temporary slab with an extra duplicate region so the surface cleaning
         # can be applied while preserving only the interior after capping.
         Pos, Types, Lims_tot, _a, _b = duplicate(Nx, Ny, 3, Lims, Atom_types, Atom_pos)
-        Pos, Types, Bonds_OH, Angles_OH = clean_structure(Pos, Types, Lims, N_list, periodic=True)
-        Pos, Types, Lims_tot, Bonds_OH, Angles_OH = duplicate(1, 1, Nz, Lims, Types, Pos, Bonds_OH=Bonds_OH, Angles_OH=Angles_OH)
-
+        Pos, Types, Bonds_OH, _ = clean_structure(Pos, Types, Lims, N_list, periodic=True)
+        Pos, Types, Lims_tot, Bonds_OH, _ = duplicate(1, 1, Nz, Lims, Types, Pos, Bonds_OH=Bonds_OH, Angles_OH=Angles_OH)
+        Angles_OH = []
+        
         # Adapt the pitch to the new z dimension to avoid problems with the periodicity of the system after the transformation
         pitch_actual = Nz*lz
         Pos[:,2] *=pitch/pitch_actual
